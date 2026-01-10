@@ -1,0 +1,50 @@
+# Use Home Assistant base image
+ARG BUILD_FROM
+FROM $BUILD_FROM
+
+# Install system dependencies
+# We use apk for the base libraries and pip for the python packages
+RUN apk add --no-cache \
+    python3 \
+    py3-pip \
+    python3-dev \
+    alsa-lib \
+    alsa-utils \
+    alsa-plugins-pulse \
+    portaudio \
+    portaudio-dev \
+    gcc \
+    g++ \
+    musl-dev \
+    linux-headers \
+    pulseaudio-utils \
+    bash \
+    curl \
+    iproute2 \
+    jq
+
+WORKDIR /app
+
+# Install Python requirements
+# Note: Installing numpy/scipy via pip on Alpine can be slow,
+# but it's the only way to ensure they land in the correct Python environment
+COPY requirements.txt .
+RUN python3 -m pip install --break-system-packages --no-cache-dir --prefer-binary numpy==1.26.4 paho-mqtt==1.6.1
+RUN python3 -m pip install --break-system-packages --no-cache-dir --prefer-binary pyaudio==0.2.14
+# Scipy is the heaviest, we try to install it last
+RUN python3 -m pip install --break-system-packages --no-cache-dir --prefer-binary scipy==1.12.0
+
+# Copy application code
+COPY detector/ ./detector/
+COPY run.sh .
+RUN chmod a+x ./run.sh
+
+# Labels for Home Assistant
+LABEL \
+    io.hass.name="Acoustic Alarm Detector" \
+    io.hass.description="Acoustic smoke and CO alarm detection" \
+    io.hass.version="8.6.2" \
+    io.hass.type="addon" \
+    io.hass.arch="aarch64|amd64|armhf|armv7"
+
+ENTRYPOINT ["/bin/bash", "/app/run.sh"]
