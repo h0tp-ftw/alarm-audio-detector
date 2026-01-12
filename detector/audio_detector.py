@@ -21,9 +21,9 @@ class BeepState:
 class AlarmDetector:
     """Acoustic alarm detector with FFT analysis and temporal pattern recognition"""
 
-    def __init__(self, config: DetectorConfig, mqtt_callback=None):
+    def __init__(self, config: DetectorConfig, state_callback=None):
         self.config = config
-        self.mqtt_callback = mqtt_callback
+        self.state_callback = state_callback
         self.state = BeepState.IDLE
 
         # Timing tracking
@@ -184,9 +184,9 @@ class AlarmDetector:
 
         self.alarm_active = True
 
-        # Publish to MQTT
-        if self.mqtt_callback:
-            self.mqtt_callback(True)
+        # Notify state change
+        if self.state_callback:
+            self.state_callback(True)
 
         # Reset for next detection
         self._reset_pattern()
@@ -244,8 +244,8 @@ class AlarmDetector:
         # Auto-clear alarm after detection
         if alarm_detected and self.alarm_active:
             time.sleep(5)  # Keep alarm ON for 5 seconds
-            if self.mqtt_callback:
-                self.mqtt_callback(False)
+            if self.state_callback:
+                self.state_callback(False)
             self.alarm_active = False
 
         return alarm_detected

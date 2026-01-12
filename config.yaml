@@ -1,7 +1,7 @@
-name: "Acoustic Alarm Detector v8"
-version: "8.6.3"
-slug: "alarm_detector_v8"
-description: "Acoustic smoke and CO alarm detection - PRODUCTION READY"
+name: "Acoustic Alarm Detector v9"
+version: "9.0.0"
+slug: "alarm_detector_v9"
+description: "Acoustic smoke and CO alarm detection - Direct HA API (No MQTT)"
 url: "https://github.com/yourusername/alarm-audio-detector"
 arch:
   - aarch64
@@ -16,12 +16,9 @@ audio: true
 hassio_api: true
 homeassistant_api: true
 hassio_role: admin
-mqtt: true
 options:
-  mqtt_host: "core-mosquitto"
-  mqtt_port: 1883
-  long_lived_token: ""
   device_name: "smoke_alarm_detector"
+  alarm_type: "smoke"
   target_frequency: 3133
   frequency_tolerance: 250
   min_magnitude_threshold: 0.25
@@ -31,12 +28,8 @@ options:
   pause_duration_max: 2.5
   confirmation_cycles: 1
 schema:
-  mqtt_host: str
-  mqtt_port: int
-  mqtt_user: str?
-  mqtt_password: password?
-  long_lived_token: password?
   device_name: str
+  alarm_type: list(smoke|co)
   target_frequency: int
   frequency_tolerance: int
   min_magnitude_threshold: float

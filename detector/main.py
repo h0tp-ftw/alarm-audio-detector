@@ -6,7 +6,6 @@ import signal
 import pyaudio
 import numpy as np
 from .config import DetectorConfig
-from .mqtt_client import MQTTClient
 from .ha_client import HAClient
 from .audio_detector import AlarmDetector
 
@@ -24,7 +23,7 @@ class DetectorApp:
 
     def __init__(self):
         self.config = DetectorConfig()
-        self.mqtt_client = None
+        self.ha_client = None
         self.detector = None
         self.audio_stream = None
         self.p = None
@@ -33,7 +32,7 @@ class DetectorApp:
     def setup(self):
         """Initialize all components"""
         logger.info("=" * 60)
-        logger.info("ACOUSTIC ALARM DETECTOR - PRODUCTION")
+        logger.info("ACOUSTIC ALARM DETECTOR - NO MQTT VERSION")
         logger.info("=" * 60)
         logger.info(f"Alarm Type: {self.config.alarm_type.upper()}")
         logger.info(f"Target Frequency: {self.config.target_frequency} Hz")
@@ -41,39 +40,32 @@ class DetectorApp:
         logger.info(f"Confirmation Cycles: {self.config.confirmation_cycles}")
         logger.info("=" * 60)
 
-        # Initialize API Clients
-        self.mqtt_client = MQTTClient(self.config)
+        # Initialize HA API Client (uses Supervisor token automatically)
+        self.ha_client = HAClient()
 
-        # Only pass token if it's actually set (not empty string)
-        manual = (self.config.ha_token or "").strip()
-        self.ha_client = HAClient(manual if manual else None)
-
-        # Connect MQTT but don't exit if it fails (we have the API fallback)
-        if not self.mqtt_client.connect():
-            logger.warning("MQTT Connection failed. Will use Direct API fallback.")
-
-        # Optional: Test HA API Connection (only log if it fails)
+        # Test HA API Connection
         if not self.ha_client.test_connection():
-            logger.debug("HA API test failed, but will retry on actual alarm detection")
+            logger.warning(
+                "HA API test failed, but will retry on actual alarm detection"
+            )
 
-        # Initialize detector with hybrid callback
+        # Initialize detector with HA API callback
         def notification_callback(detected: bool):
-            # Priority 1: MQTT (Official way for addons to create binary sensors)
-            if self.mqtt_client.connected:
-                self.mqtt_client.publish_alarm_state(detected)
+            """Send state updates directly to Home Assistant via REST API"""
+            logger.info(
+                f"🔔 Alarm state changed: {'DETECTED' if detected else 'CLEAR'}"
+            )
+            success = self.ha_client.sync_notification(
+                detected, self.config.device_name, self.config.alarm_type
+            )
+            if success:
                 logger.info(
-                    f"📡 MQTT: Alarm state published = {'ON' if detected else 'OFF'}"
+                    f"✅ State update successful: binary_sensor.{self.config.device_name}_{self.config.alarm_type}"
                 )
             else:
-                # Priority 2: Direct API (Fallback when MQTT unavailable)
-                logger.warning(
-                    "MQTT not connected, using Supervisor API state update fallback"
-                )
-                self.ha_client.sync_notification(
-                    detected, self.config.device_name, self.config.alarm_type
-                )
+                logger.error("❌ Failed to update Home Assistant state")
 
-        self.detector = AlarmDetector(self.config, mqtt_callback=notification_callback)
+        self.detector = AlarmDetector(self.config, state_callback=notification_callback)
 
         # Initialize PyAudio safely
         try:
@@ -199,9 +191,6 @@ class DetectorApp:
                 self.p.terminate()
             except Exception:
                 pass
-
-        if self.mqtt_client:
-            self.mqtt_client.disconnect()
 
         logger.info("Shutdown complete")
 

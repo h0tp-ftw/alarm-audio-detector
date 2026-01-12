@@ -18,13 +18,9 @@ class DetectorConfig:
         val = os.getenv(key, default)
         return float(val) if val and val.strip() else float(default)
 
-    # MQTT Configuration
-    mqtt_host: str = os.getenv("MQTT_HOST", "core-mosquitto")
-    mqtt_port: int = _safe_int("MQTT_PORT", "1883")
-    mqtt_user: str = os.getenv("MQTT_USER", "")
-    mqtt_password: str = os.getenv("MQTT_PASSWORD", "")
-    ha_token: str = os.getenv("LONG_LIVED_TOKEN", "")
+    # Device Configuration
     device_name: str = os.getenv("DEVICE_NAME", "smoke_alarm_detector")
+    alarm_type: str = os.getenv("ALARM_TYPE", "smoke")  # "smoke" (T3) or "co" (T4)
 
     # Audio Configuration
     sample_rate: int = _safe_int("SAMPLE_RATE", "44100")
@@ -48,7 +44,6 @@ class DetectorConfig:
     pause_duration_max: float = _safe_float("PAUSE_MAX", "2.5")
 
     # Pattern Recognition
-    alarm_type: str = os.getenv("ALARM_TYPE", "smoke")  # "smoke" (T3) or "co" (T4)
     confirmation_cycles: int = _safe_int("CONFIRMATION_CYCLES", "2")
     pattern_timeout: float = 10.0
 
@@ -56,18 +51,3 @@ class DetectorConfig:
     def required_beeps(self) -> int:
         """Return required beeps based on alarm type"""
         return 3 if self.alarm_type == "smoke" else 4  # T3 vs T4
-
-    @property
-    def mqtt_discovery_topic(self) -> str:
-        """MQTT Discovery topic for automatic Home Assistant registration"""
-        return f"homeassistant/binary_sensor/{self.device_name}/config"
-
-    @property
-    def mqtt_state_topic(self) -> str:
-        """MQTT state topic for alarm status"""
-        return f"homeassistant/binary_sensor/{self.device_name}/state"
-
-    @property
-    def mqtt_availability_topic(self) -> str:
-        """MQTT availability topic"""
-        return f"homeassistant/binary_sensor/{self.device_name}/availability"
