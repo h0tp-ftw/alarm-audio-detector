@@ -35,6 +35,12 @@ class DetectorProfile:
     pattern_timeout: float = 10.0
     beep_count: int = 3  # T3=3 beeps, T4=4 beeps
 
+    # Analysis / Quality Thresholds
+    min_energy_ratio: float = 0.08  # Target band must contain 8% of total energy (was 0.12, conservative start)
+    min_peak_sharpness: float = 2.0  # Peak must be 2x higher than neighbors (was 2.5)
+    max_freq_variance: float = 60.0  # Max Hz deviation during visual beep
+    min_magnitude_consistency: float = 0.3  # Min/Max magnitude ratio during beep
+
     @property
     def required_beeps(self) -> int:
         """Return required beeps for pattern match."""

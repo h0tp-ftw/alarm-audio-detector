@@ -9,11 +9,18 @@ This module handles:
 import numpy as np
 import time
 import logging
-from collections import deque
 from datetime import datetime
 from typing import Callable, Optional
 
 from config import DetectorProfile
+
+try:
+    from detector.screener import FrequencyScreener
+    from detector.analyzer import SpectralAnalyzer
+except ImportError:
+    # Fallback for when running directly or flat structure
+    from screener import FrequencyScreener
+    from analyzer import SpectralAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +34,7 @@ class BeepState:
 
 
 class PatternDetector:
-    """Acoustic alarm detector with FFT analysis and temporal pattern recognition."""
+    """Acoustic alarm detector with 4-stage processing pipeline."""
 
     def __init__(
         self,
@@ -36,7 +43,7 @@ class PatternDetector:
         chunk_size: int,
         on_detection: Optional[Callable[[bool], None]] = None,
     ):
-        """Initialize the pattern detector.
+        """Initialize the pattern detector pipeline.
 
         Args:
             profile: Detection profile configuration
@@ -49,6 +56,10 @@ class PatternDetector:
         self.chunk_size = chunk_size
         self.on_detection = on_detection
         self.state = BeepState.IDLE
+
+        # Pipeline Components
+        self.screener = FrequencyScreener(profile, sample_rate, chunk_size)
+        self.analyzer = SpectralAnalyzer(profile)
 
         # Timing tracking
         self.beep_start_time = None
@@ -64,63 +75,14 @@ class PatternDetector:
         self.max_mag_freq = 0.0
         self.chunk_count = 0
         self.max_rms_observed = 0.0
-
-        # Audio processing - FFT frequency bins
-        self.freq_bins = np.fft.rfftfreq(chunk_size, 1.0 / sample_rate)
-        self.target_freq_idx_min, self.target_freq_idx_max = (
-            self._get_frequency_indices()
-        )
-
-        # History buffer for smoothing
-        self.detection_history = deque(maxlen=2)
+        # self.rejection_reasons = {}  # Could track stats on rejections
 
         logger.info(
-            f"Detector [{profile.name}] initialized: "
-            f"{profile.target_frequency}Hz ±{profile.frequency_tolerance} "
-            f"({profile.beep_count} beeps, {profile.confirmation_cycles} cycles)"
+            f"Detector [{profile.name}] pipeline initialized:\n"
+            f"  • Target: {profile.target_frequency}Hz ±{profile.frequency_tolerance}\n"
+            f"  • Quality: >{profile.min_energy_ratio * 100:.0f}% energy, >{profile.min_peak_sharpness}x sharpness\n"
+            f"  • Pattern: {profile.beep_count} beeps, {profile.confirmation_cycles} cycles"
         )
-
-    def _get_frequency_indices(self):
-        """Calculate FFT bin indices for target frequency range."""
-        freq_min = self.profile.target_frequency - self.profile.frequency_tolerance
-        freq_max = self.profile.target_frequency + self.profile.frequency_tolerance
-
-        idx_min = np.argmin(np.abs(self.freq_bins - freq_min))
-        idx_max = np.argmin(np.abs(self.freq_bins - freq_max))
-
-        return idx_min, idx_max
-
-    def detect_target_frequency(self, audio_chunk: np.ndarray):
-        """FFT analysis to detect target frequency.
-
-        Returns:
-            Tuple of (detected: bool, magnitude: float, dominant_freq: float)
-        """
-        # Convert to float and normalize
-        audio_float = audio_chunk.astype(np.float32) / 32768.0
-
-        # Apply Hann window
-        windowed = audio_float * np.hanning(len(audio_float))
-
-        # Compute FFT
-        fft_result = np.fft.rfft(windowed)
-        fft_magnitude = np.abs(fft_result)
-
-        # Normalize
-        if np.max(fft_magnitude) > 0:
-            fft_magnitude = fft_magnitude / np.max(fft_magnitude)
-
-        # Extract target band magnitude
-        target_band = fft_magnitude[self.target_freq_idx_min : self.target_freq_idx_max]
-        max_magnitude = np.max(target_band) if len(target_band) > 0 else 0
-
-        # Find dominant frequency
-        if max_magnitude > self.profile.min_magnitude_threshold:
-            peak_idx = np.argmax(target_band) + self.target_freq_idx_min
-            dominant_freq = self.freq_bins[peak_idx]
-            return True, max_magnitude, dominant_freq
-
-        return False, max_magnitude, 0.0
 
     def update_state_machine(self, freq_detected: bool) -> bool:
         """State machine for temporal pattern recognition.
@@ -147,7 +109,7 @@ class PatternDetector:
                 self.state = BeepState.BEEPING
                 self.beep_start_time = current_time
                 self.last_detection_time = current_time
-                logger.info(f"[{p.name}] >>> BEEP START DETECTED")
+                logger.debug(f"[{p.name}] >>> BEEP START DETECTED")
 
         # State 1: Currently hearing a beep
         elif self.state == BeepState.BEEPING:
@@ -178,7 +140,7 @@ class PatternDetector:
                             self.beep_count = 0
                             self.state = BeepState.IDLE
                 else:
-                    logger.info(
+                    logger.debug(
                         f"[{p.name}] REJECTED BEEP: {beep_duration:.2f}s "
                         f"(Expected {p.beep_duration_min}-{p.beep_duration_max}s)"
                     )
@@ -193,11 +155,11 @@ class PatternDetector:
                 self.last_detection_time = current_time
 
                 if p.pause_duration_min <= pause_duration <= p.pause_duration_max:
-                    logger.info(
+                    logger.debug(
                         f"[{p.name}] VALID PAUSE ({pause_duration:.2f}s) -> Next beep..."
                     )
                 else:
-                    logger.info(
+                    logger.debug(
                         f"[{p.name}] REJECTED PAUSE: {pause_duration:.2f}s "
                         f"(Expected {p.pause_duration_min}-{p.pause_duration_max}s)"
                     )
@@ -240,16 +202,14 @@ class PatternDetector:
         """
         self.chunk_count += 1
 
-        freq_detected, magnitude, dominant_freq = self.detect_target_frequency(
-            audio_chunk
-        )
+        # 1. SCREENER: Preliminary Frequency Detection
+        screen_result = self.screener.screen(audio_chunk)
 
         # Track max magnitude and RMS for debug/tuning
         rms = np.sqrt(np.mean(audio_chunk.astype(np.float32) ** 2))
-
-        if magnitude > self.max_mag_observed:
-            self.max_mag_observed = magnitude
-            self.max_mag_freq = dominant_freq
+        if screen_result.magnitude > self.max_mag_observed:
+            self.max_mag_observed = screen_result.magnitude
+            self.max_mag_freq = screen_result.dominant_freq
 
         if rms > self.max_rms_observed:
             self.max_rms_observed = rms
@@ -262,18 +222,32 @@ class PatternDetector:
                 f"Mag={self.max_mag_observed:.4f} @ {self.max_mag_freq:.1f}Hz "
                 f"[Threshold: {self.profile.min_magnitude_threshold}]"
             )
-
             # Reset monitor
             self.max_mag_observed = 0.0
             self.max_rms_observed = 0.0
             self.debug_timer = current_time
 
-        if freq_detected:
-            logger.info(
-                f"[{self.profile.name}] Frequency detected: {dominant_freq:.1f}Hz (mag: {magnitude:.3f})"
-            )
+        # 2. ANALYZER: Spectral Quality Validation
+        target_detected = False
 
-        alarm_detected = self.update_state_machine(freq_detected)
+        if screen_result.detected:
+            analysis = self.analyzer.analyze(screen_result)
+
+            if analysis.is_valid:
+                target_detected = True
+                logger.info(
+                    f"[{self.profile.name}] Hit: {screen_result.dominant_freq:.1f}Hz "
+                    f"(Mag: {screen_result.magnitude:.2f}, E-Ratio: {analysis.energy_ratio:.2f}, Sharp: {analysis.sharpness:.1f})"
+                )
+            else:
+                # Log rejections occasionally or if debugging
+                if self.chunk_count % 20 == 0:  # Don't spam logs
+                    logger.debug(
+                        f"[{self.profile.name}] Rejected: {', '.join(analysis.reasons)}"
+                    )
+
+        # 3. PATTERN MATCHER: Temporal State Machine
+        alarm_detected = self.update_state_machine(target_detected)
 
         # Auto-clear alarm after detection
         if alarm_detected and self.alarm_active:
