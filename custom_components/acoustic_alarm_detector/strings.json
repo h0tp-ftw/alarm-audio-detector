@@ -1,0 +1,28 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Acoustic Alarm Detector",
+        "description": "Configure your acoustic alarm detector. The add-on must be installed and running.",
+        "data": {
+          "device_name": "Device Name",
+          "alarm_type": "Alarm Type"
+        }
+      }
+    },
+    "error": {
+      "already_configured": "This device is already configured"
+    },
+    "abort": {
+      "already_configured": "Device is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Acoustic Alarm Detector Options",
+        "description": "Configure advanced options (coming soon)"
+      }
+    }
+  }
+}

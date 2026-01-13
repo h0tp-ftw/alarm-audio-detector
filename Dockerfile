@@ -23,13 +23,15 @@ RUN apk add --no-cache \
     iproute2 \
     jq
 
+
+
 WORKDIR /app
 
 # Install Python requirements
 # Note: Installing numpy/scipy via pip on Alpine can be slow,
 # but it's the only way to ensure they land in the correct Python environment
 COPY requirements.txt .
-RUN python3 -m pip install --break-system-packages --no-cache-dir --prefer-binary numpy==1.26.4 paho-mqtt==1.6.1
+RUN python3 -m pip install --break-system-packages --no-cache-dir --prefer-binary numpy==1.26.4 websockets==12.0
 RUN python3 -m pip install --break-system-packages --no-cache-dir --prefer-binary pyaudio==0.2.14
 # Scipy is the heaviest, we try to install it last
 RUN python3 -m pip install --break-system-packages --no-cache-dir --prefer-binary scipy==1.12.0
@@ -39,12 +41,21 @@ COPY detector/ ./detector/
 COPY run.sh .
 RUN chmod a+x ./run.sh
 
+# Copy custom integration (for auto-install)
+COPY custom_components/ ./custom_components/
+
 # Labels for Home Assistant
 LABEL \
     io.hass.name="Acoustic Alarm Detector" \
-    io.hass.description="Acoustic smoke and CO alarm detection" \
-    io.hass.version="8.6.2" \
+    io.hass.description="Acoustic smoke and CO alarm detection with native integration" \
+    io.hass.version="9.0.0" \
     io.hass.type="addon" \
     io.hass.arch="aarch64|amd64|armhf|armv7"
 
+# Create ALSA configuration to route audio to PulseAudio
+# Using printf for better portability
+RUN mkdir -p /usr/share/alsa && \
+    printf 'pcm.!default {\n  type pulse\n}\nctl.!default {\n  type pulse\n}\n' > /usr/share/alsa/alsa.conf
+
 ENTRYPOINT ["/bin/bash", "/app/run.sh"]
+

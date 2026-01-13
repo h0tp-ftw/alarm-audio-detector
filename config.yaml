@@ -1,7 +1,7 @@
 name: "Acoustic Alarm Detector v9"
 version: "9.0.0"
 slug: "alarm_detector_v9"
-description: "Acoustic smoke and CO alarm detection - Direct HA API (No MQTT)"
+description: "Acoustic smoke and CO alarm detection with native HA integration"
 url: "https://github.com/yourusername/alarm-audio-detector"
 arch:
   - aarch64
@@ -11,11 +11,12 @@ arch:
 startup: application
 boot: auto
 init: false
-apparmor: false
+apparmor: true
 audio: true
 hassio_api: true
 homeassistant_api: true
-hassio_role: admin
+map:
+  - config:rw
 options:
   device_name: "smoke_alarm_detector"
   alarm_type: "smoke"
@@ -27,6 +28,7 @@ options:
   pause_duration_min: 0.05
   pause_duration_max: 2.5
   confirmation_cycles: 1
+  debug_mode: false
 schema:
   device_name: str
   alarm_type: list(smoke|co)
@@ -38,3 +40,4 @@ schema:
   pause_duration_min: float
   pause_duration_max: float
   confirmation_cycles: int
+  debug_mode: bool

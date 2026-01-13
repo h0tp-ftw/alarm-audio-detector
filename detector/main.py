@@ -1,13 +1,20 @@
-"""Main application entry point"""
+"""Main application entry point.
+
+Orchestrates the three-part architecture:
+- Listener: Audio capture
+- Detector: Pattern recognition
+- Sensor: Home Assistant integration
+"""
 
 import logging
 import sys
 import signal
-import pyaudio
-import numpy as np
-from .config import DetectorConfig
-from .ha_client import HAClient
-from .audio_detector import AlarmDetector
+from typing import List
+
+from config import DetectorConfig, AudioSettings
+from listener import AudioListener, AudioConfig
+from detector import PatternDetector
+from sensor import SensorManager, SensorProfile
 
 # Configure logging
 logging.basicConfig(
@@ -19,186 +26,131 @@ logger = logging.getLogger(__name__)
 
 
 class DetectorApp:
-    """Main application orchestrator"""
+    """Main application orchestrator."""
 
     def __init__(self):
-        self.config = DetectorConfig()
-        self.ha_client = None
-        self.detector = None
-        self.audio_stream = None
-        self.p = None
+        """Initialize the application."""
+        self.config: DetectorConfig = None
+        self.listener: AudioListener = None
+        self.detectors: List[PatternDetector] = []
+        self.sensor_manager: SensorManager = None
         self.running = False
 
-    def setup(self):
-        """Initialize all components"""
-        logger.info("=" * 60)
-        logger.info("ACOUSTIC ALARM DETECTOR - NO MQTT VERSION")
-        logger.info("=" * 60)
-        logger.info(f"Alarm Type: {self.config.alarm_type.upper()}")
-        logger.info(f"Target Frequency: {self.config.target_frequency} Hz")
-        logger.info(f"Sample Rate: {self.config.sample_rate} Hz")
-        logger.info(f"Confirmation Cycles: {self.config.confirmation_cycles}")
-        logger.info("=" * 60)
+    def setup(self) -> bool:
+        """Initialize all components.
 
-        # Initialize HA API Client (uses Supervisor token automatically)
-        self.ha_client = HAClient()
+        Returns:
+            True if setup succeeded, False otherwise
+        """
+        # Load configuration
+        self.config = DetectorConfig.from_environment()
+        self.config.log_config()
 
-        # Test HA API Connection
-        if not self.ha_client.test_connection():
+        # Create sensor profiles from detector profiles
+        sensor_profiles = [
+            SensorProfile(
+                name=p.name,
+                device_class=p.device_class,
+            )
+            for p in self.config.profiles
+        ]
+
+        # Initialize Sensor Manager (HA communication)
+        self.sensor_manager = SensorManager(
+            device_name=self.config.device_name,
+            profiles=sensor_profiles,
+        )
+        if not self.sensor_manager.setup():
             logger.warning(
-                "HA API test failed, but will retry on actual alarm detection"
+                "⚠️ Sensor manager setup failed - will retry on alarm detection"
             )
 
-        # Initialize detector with HA API callback
-        def notification_callback(detected: bool):
-            """Send state updates directly to Home Assistant via REST API"""
-            logger.info(
-                f"🔔 Alarm state changed: {'DETECTED' if detected else 'CLEAR'}"
+        # Initialize Detectors (one per profile)
+        for profile in self.config.profiles:
+            # Create detection callback that routes to sensor manager
+            callback = self.sensor_manager.create_detection_callback(profile.name)
+
+            detector = PatternDetector(
+                profile=profile,
+                sample_rate=self.config.audio.sample_rate,
+                chunk_size=self.config.audio.chunk_size,
+                on_detection=callback,
             )
-            success = self.ha_client.sync_notification(
-                detected, self.config.device_name, self.config.alarm_type
-            )
-            if success:
-                logger.info(
-                    f"✅ State update successful: binary_sensor.{self.config.device_name}_{self.config.alarm_type}"
-                )
-            else:
-                logger.error("❌ Failed to update Home Assistant state")
+            self.detectors.append(detector)
 
-        self.detector = AlarmDetector(self.config, state_callback=notification_callback)
+        logger.info(f"✅ Created {len(self.detectors)} detector(s)")
 
-        # Initialize PyAudio safely
-        try:
-            logger.info("Initializing PyAudio...")
-            self.p = pyaudio.PyAudio()
-            self.list_audio_devices()
-        except Exception as e:
-            logger.error(f"CRITICAL: Failed to initialize PyAudio: {e}")
-            logger.error(
-                "This usually means audio drivers (ALSA) are missing or inaccessible."
-            )
-            sys.exit(1)
+        # Initialize Listener (audio capture)
+        audio_config = AudioConfig(
+            sample_rate=self.config.audio.sample_rate,
+            chunk_size=self.config.audio.chunk_size,
+            channels=self.config.audio.channels,
+            device_index=self.config.audio.device_index,
+        )
 
-        try:
-            device_index = self.config.audio_device_index
+        self.listener = AudioListener(
+            config=audio_config,
+            on_audio_chunk=self._on_audio_chunk,
+        )
 
-            # Basic validation to prevent Segfaults
-            if device_index is not None:
-                try:
-                    dev_info = self.p.get_device_info_by_host_api_device_index(
-                        0, device_index
-                    )
-                    logger.info(
-                        f"Using manual audio device: {dev_info.get('name')} (Index {device_index})"
-                    )
-                    if dev_info.get("maxInputChannels") == 0:
-                        logger.error(
-                            f"Device index {device_index} has no input channels!"
-                        )
-                        self.list_audio_devices()
-                        sys.exit(1)
-                except Exception as e:
-                    logger.error(f"Invalid device index {device_index}: {e}")
-                    self.list_audio_devices()
-                    sys.exit(1)
-            else:
-                logger.info("Using default audio device index (attempting auto-detect)")
+        if not self.listener.setup():
+            logger.error("❌ Failed to initialize audio listener")
+            return False
 
-            self.audio_stream = self.p.open(
-                format=pyaudio.paInt16,
-                channels=self.config.channels,
-                rate=self.config.sample_rate,
-                input=True,
-                input_device_index=device_index,
-                frames_per_buffer=self.config.chunk_size,
-            )
-            logger.info("Audio stream opened successfully")
-        except Exception as e:
-            logger.error(f"Failed to open audio stream: {e}")
-            self.list_audio_devices()  # Show devices again on failure
-            sys.exit(1)
+        logger.info("✅ Audio listener initialized")
 
         # Set up signal handlers for graceful shutdown
         signal.signal(signal.SIGTERM, self._signal_handler)
         signal.signal(signal.SIGINT, self._signal_handler)
 
-    def list_audio_devices(self):
-        """List all available audio input devices for user debugging"""
-        logger.info("-" * 40)
-        logger.info("AVAILABLE AUDIO DEVICES:")
-        try:
-            # Re-initialize if not exists
-            if not self.p:
-                self.p = pyaudio.PyAudio()
+        return True
 
-            info = self.p.get_host_api_info_by_index(0)
-            num_devices = info.get("deviceCount")
+    def _on_audio_chunk(self, audio_chunk) -> None:
+        """Callback for processing audio chunks through all detectors."""
+        for detector in self.detectors:
+            detector.process(audio_chunk)
 
-            if num_devices == 0:
-                logger.warning(
-                    "No audio devices found! Check your 'privileged' and 'devices' settings."
-                )
-
-            for i in range(0, num_devices):
-                device_info = self.p.get_device_info_by_host_api_device_index(0, i)
-                if device_info.get("maxInputChannels") > 0:
-                    logger.info(
-                        f"Index {i}: {device_info.get('name')} (Input channels: {device_info.get('maxInputChannels')})"
-                    )
-        except Exception as e:
-            logger.error(f"Could not list audio devices: {e}")
-        logger.info("-" * 40)
-
-    def _signal_handler(self, signum, frame):
-        """Handle shutdown signals"""
+    def _signal_handler(self, signum, frame) -> None:
+        """Handle shutdown signals."""
         logger.info(f"Received signal {signum}. Shutting down...")
         self.running = False
+        self.listener.stop()
 
-    def run(self):
-        """Main processing loop"""
+    def run(self) -> None:
+        """Start the detection loop."""
         self.running = True
-        logger.info("Detector is running. Listening for alarm patterns...")
+        logger.info("=" * 50)
+        logger.info("🎤 ACOUSTIC ALARM DETECTOR - RUNNING")
+        logger.info("=" * 50)
 
         try:
-            while self.running:
-                # Read audio chunk
-                audio_data = self.audio_stream.read(
-                    self.config.chunk_size, exception_on_overflow=False
-                )
-                audio_chunk = np.frombuffer(audio_data, dtype=np.int16)
-
-                # Process audio
-                self.detector.process_audio_chunk(audio_chunk)
-
+            self.listener.start()
         except Exception as e:
             logger.error(f"Error in main loop: {e}", exc_info=True)
         finally:
             self.cleanup()
 
-    def cleanup(self):
-        """Clean up resources"""
+    def cleanup(self) -> None:
+        """Clean up all resources."""
         logger.info("Cleaning up resources...")
 
-        if self.audio_stream:
-            try:
-                self.audio_stream.stop_stream()
-                self.audio_stream.close()
-            except Exception:
-                pass
+        if self.listener:
+            self.listener.cleanup()
 
-        if self.p:
-            try:
-                self.p.terminate()
-            except Exception:
-                pass
+        if self.sensor_manager:
+            self.sensor_manager.cleanup()
 
-        logger.info("Shutdown complete")
+        logger.info("✅ Shutdown complete")
 
 
 def main():
-    """Entry point"""
+    """Entry point."""
     app = DetectorApp()
-    app.setup()
+
+    if not app.setup():
+        logger.error("Setup failed. Exiting.")
+        sys.exit(1)
+
     app.run()
 
 
