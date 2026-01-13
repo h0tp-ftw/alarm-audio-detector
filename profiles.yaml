@@ -1,0 +1,122 @@
+# =============================================================================
+# Universal Alarm Engine - Bundled Profiles
+# =============================================================================
+# This file contains multiple alarm profiles in a single bundle.
+# Share this file to distribute your alarm detection configurations.
+#
+# Format: YAML with 'profiles' list
+# Each profile defines a unique sound pattern to detect.
+# =============================================================================
+
+profiles:
+  # -------------------------------------------------------------------------
+  # SMOKE & FIRE ALARMS
+  # -------------------------------------------------------------------------
+  - name: "SmokeAlarm_T3"
+    description: "Standard US smoke detector (NFPA T3 pattern: 3 beeps)"
+    confirmation_cycles: 2
+    reset_timeout: 10.0
+    segments:
+      - type: "tone"
+        frequency: { min: 2900, max: 3200 }
+        duration: { min: 0.4, max: 0.6 }
+      - type: "silence"
+        duration: { min: 0.1, max: 0.3 }
+      - type: "tone"
+        frequency: { min: 2900, max: 3200 }
+        duration: { min: 0.4, max: 0.6 }
+      - type: "silence"
+        duration: { min: 0.1, max: 0.3 }
+      - type: "tone"
+        frequency: { min: 2900, max: 3200 }
+        duration: { min: 0.4, max: 0.6 }
+      - type: "silence"
+        duration: { min: 0.8, max: 1.5 }
+
+  - name: "COAlarm_T4"
+    description: "Carbon monoxide detector (T4 pattern: 4 beeps)"
+    confirmation_cycles: 2
+    reset_timeout: 10.0
+    segments:
+      - type: "tone"
+        frequency: { min: 2900, max: 3200 }
+        duration: { min: 0.4, max: 0.6 }
+      - type: "silence"
+        duration: { min: 0.1, max: 0.3 }
+      - type: "tone"
+        frequency: { min: 2900, max: 3200 }
+        duration: { min: 0.4, max: 0.6 }
+      - type: "silence"
+        duration: { min: 0.1, max: 0.3 }
+      - type: "tone"
+        frequency: { min: 2900, max: 3200 }
+        duration: { min: 0.4, max: 0.6 }
+      - type: "silence"
+        duration: { min: 0.1, max: 0.3 }
+      - type: "tone"
+        frequency: { min: 2900, max: 3200 }
+        duration: { min: 0.4, max: 0.6 }
+      - type: "silence"
+        duration: { min: 0.8, max: 1.5 }
+
+  # -------------------------------------------------------------------------
+  # APPLIANCE ALERTS
+  # -------------------------------------------------------------------------
+  - name: "WashingMachine_EndCycle"
+    description: "Typical washing machine end-of-cycle melody"
+    confirmation_cycles: 1
+    reset_timeout: 15.0
+    segments:
+      - type: "tone"
+        frequency: { min: 800, max: 900 }
+        duration: { min: 0.3, max: 0.5 }
+      - type: "silence"
+        duration: { min: 0.05, max: 0.15 }
+      - type: "tone"
+        frequency: { min: 1000, max: 1100 }
+        duration: { min: 0.3, max: 0.5 }
+      - type: "silence"
+        duration: { min: 0.05, max: 0.15 }
+      - type: "tone"
+        frequency: { min: 1200, max: 1400 }
+        duration: { min: 0.5, max: 0.8 }
+      - type: "silence"
+        duration: { min: 1.0, max: 3.0 }
+
+  - name: "Microwave_Complete"
+    description: "Microwave done beeping"
+    confirmation_cycles: 1
+    reset_timeout: 10.0
+    segments:
+      - type: "tone"
+        frequency: { min: 2400, max: 2600 }
+        duration: { min: 0.3, max: 0.5 }
+      - type: "silence"
+        duration: { min: 0.2, max: 0.4 }
+      - type: "tone"
+        frequency: { min: 2400, max: 2600 }
+        duration: { min: 0.3, max: 0.5 }
+      - type: "silence"
+        duration: { min: 0.2, max: 0.4 }
+      - type: "tone"
+        frequency: { min: 2400, max: 2600 }
+        duration: { min: 0.3, max: 0.5 }
+      - type: "silence"
+        duration: { min: 1.0, max: 2.0 }
+
+  # -------------------------------------------------------------------------
+  # DOORBELL / CHIMES
+  # -------------------------------------------------------------------------
+  - name: "Doorbell_DingDong"
+    description: "Classic two-tone doorbell"
+    confirmation_cycles: 1
+    reset_timeout: 5.0
+    segments:
+      - type: "tone"
+        frequency: { min: 900, max: 1100 }
+        duration: { min: 0.3, max: 0.6 }
+      - type: "silence"
+        duration: { min: 0.05, max: 0.2 }
+      - type: "tone"
+        frequency: { min: 700, max: 900 }
+        duration: { min: 0.5, max: 1.0 }
